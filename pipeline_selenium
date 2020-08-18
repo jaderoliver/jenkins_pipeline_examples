@@ -1,0 +1,73 @@
+pipeline {
+    agent {
+        label 'srv-pt-lcont-01'   
+    }
+	stages {
+		/* Cloning the git branch*/
+		stage('Clone repository') {
+		    steps{
+		        checkout changelog: false, poll: false, scm: [$class: 'GitSCM', branches: [[name: '*/master']], doGenerateSubmoduleConfigurations: false, extensions: [], submoduleCfg: [], userRemoteConfigs: [[credentialsId: 'gitlab-admin-access', url: 'http://quality.adms.altran.pt/git/root/test-int-jenkins']]]
+		    }
+		}
+		
+		stage('Pull Image Python') {
+		    steps{
+		        sh 'docker pull python:3'
+		    }
+		}	
+		
+		stage('Deploy the Py Image') {
+		    steps{
+		        sh 'docker run -it -d --name python-cont python:3'
+		    }
+		}
+			
+		stage('Install in Container the Requirements to Deploy Py') {
+		    steps{
+		        sh 'docker exec python-cont apt update -y'
+		        sh 'docker exec python-cont pip install robotframework'
+				sh 'docker exec python-cont pip install robotframework-seleniumlibrary'
+		    }
+		}
+			
+		stage('Build the Code') {
+		    steps{
+		        sh 'docker cp /home/jenkins/workspace/grid-pipeline-test python-cont:/tmp'
+				sh 'docker exec python-cont python -m robot -d /tmp/reports /tmp/grid-pipeline-test/'
+		    }
+		}
+
+		stage('Generate Report'){
+           steps{
+               		sh 'docker cp python-cont:/tmp/reports /home/jenkins/workspace/grid-pipeline-test'
+                }   
+				post {
+		        	always {
+				        script {
+				          step(
+					            [
+					              $class              : 'RobotPublisher',
+					              outputPath          : '/home/jenkins/workspace/grid-pipeline-test/reports',
+					              outputFileName      : '**/output.xml',
+					              reportFileName      : '**/report.html',
+					              logFileName         : '**/log.html',
+					              disableArchiveOutput: false,
+					              passThreshold       : 50,
+					              unstableThreshold   : 40,
+					              otherFiles          : "**/*.png,**/*.jpg",
+					            ]
+				          	)
+				        }
+			  		}		
+			    }   
+        }
+
+        stage('Remove Container') {
+		    steps{
+		        sh 'docker stop python-cont'
+				sh 'docker rm python-cont'
+		    }
+		} 
+		
+	}
+}
