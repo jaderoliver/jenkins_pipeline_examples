@@ -1,1 +1,102 @@
----
+pipeline {
+    agent {
+        label 'srv-pt-lcont-01'   
+    }
+	stages {
+		/* Cloning the git branch*/
+		stage('Clone repository') {
+		    steps{
+		        checkout changelog: false, poll: false, scm: [$class: 'GitSCM', branches: [[name: '*/master']], doGenerateSubmoduleConfigurations: false, extensions: [], submoduleCfg: [], userRemoteConfigs: [[credentialsId: 'gitlab-admin-access', url: 'http://quality.adms.altran.pt/git/root/test-int-jenkins']]]
+		    }
+		}
+		
+		
+			
+		stage('Create ZIP File') {
+		    steps{
+		       
+			    echo 'Compact the File....'
+			    sh 'cd /home/jenkins/workspace/grid-pipeline-test; zip -r /tmp/project.zip *'
+		    }
+		}
+
+		stage('Upload Artifactory'){
+           steps{
+               script {
+                   sh 'echo $WORKSPACE'
+                   sh 'echo Artifact_$BUILD_NUMBER'
+               }
+           }
+        }
+        
+        stage (upload){
+            steps{
+                rtUpload (
+					    serverId: 'Artif-1',
+					    buildName: JOB_NAME,
+					    buildNumber: BUILD_NUMBER,
+					    spec: '''{
+					          "files": [
+					            {
+					              "pattern": "/tmp/project*.zip",
+					              "target": "generic-local/",
+					              "recursive": "true"
+					            }
+					         ]
+					    }'''
+					)
+            }    
+        }
+        
+        stage('Publish build info'){
+            steps{
+                rtPublishBuildInfo(
+                    buildName: JOB_NAME,
+                    buildNumber: BUILD_NUMBER,
+                    serverId: 'Artif-1'
+                )
+                
+                rtPublishBuildInfo(
+                    buildName: JOB_NAME,
+                    buildNumber: BUILD_NUMBER,
+                    serverId: 'Artif-1'
+                )
+            }
+        }
+        
+        stage ('Add interactive promotion'){
+            steps{
+                rtAddInteractivePromotion(
+                    //Manddatory parameter
+                    serverId: 'Artif-1',
+                    
+                    //optional parameters
+                    targetRepo: 'generic-local/',
+                    displayName: 'This is Display Name',
+                    buildName: JOB_NAME,
+                    buildNumber: BUILD_NUMBER,
+                    comment: 'This is for comment',
+                    sourceRepo: 'generic-local',
+                    status: 'Released',
+                    includeDependencies: true,
+                    failFast: true,
+                    copy: true
+                    )
+                    
+                    rtAddInteractivePromotion(
+                        serverId: 'Artif-1',
+                        buildName: JOB_NAME,
+                        buildNumber: BUILD_NUMBER
+                    )
+            }
+        }
+        
+        stage('Cleaning...') {
+		    steps{
+		        sh 'rm -rf /tmp/project.zip'
+				
+		    }
+		} 
+		
+	}
+}
